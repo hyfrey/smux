@@ -102,10 +102,10 @@ func (s *Stream) Write(b []byte) (n int, err error) {
 	default:
 	}
 
-	frames := s.split(b, cmdPSH, s.id)
+	f := framer{b, cmdPSH, s.id, s.frameSize}
 	sent := 0
-	for _, f := range frames {
-		n, err := writeFrame(f, s.sess.writes, deadline, s.die)
+	for f.HasNext() {
+		n, err := writeFrame(f.Next(), s.sess.writes, deadline, s.die)
 		sent += n
 		if err != nil {
 			return sent, err
@@ -214,23 +214,6 @@ func (s *Stream) recycleTokens() (n int) {
 	return
 }
 
-// split large byte buffer into smaller frames, reference only
-func (s *Stream) split(bts []byte, cmd byte, sid uint32) []Frame {
-	frames := make([]Frame, 0, len(bts)/s.frameSize+1)
-	for len(bts) > s.frameSize {
-		frame := newFrame(cmd, sid)
-		frame.data = bts[:s.frameSize]
-		bts = bts[s.frameSize:]
-		frames = append(frames, frame)
-	}
-	if len(bts) > 0 {
-		frame := newFrame(cmd, sid)
-		frame.data = bts
-		frames = append(frames, frame)
-	}
-	return frames
-}
-
 // notify read event
 func (s *Stream) notifyReadEvent() {
 	select {
@@ -251,3 +234,27 @@ type timeoutError struct{}
 func (e *timeoutError) Error() string   { return "i/o timeout" }
 func (e *timeoutError) Timeout() bool   { return true }
 func (e *timeoutError) Temporary() bool { return true }
+
+type framer struct {
+	bts       []byte
+	cmd       byte
+	sid       uint32
+	framesize int
+}
+
+func (f *framer) HasNext() bool {
+	return len(f.bts) != 0
+}
+
+func (f *framer) Next() Frame {
+	size := f.framesize
+	if len(f.bts) < size {
+		size = len(f.bts)
+	}
+
+	frame := newFrame(f.cmd, f.sid)
+	frame.data = f.bts[:size]
+	f.bts = f.bts[size:]
+
+	return frame
+}
