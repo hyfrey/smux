@@ -26,6 +26,10 @@ type Stream struct {
 	writeDeadline atomic.Value
 }
 
+var (
+	_ net.Conn = (*Stream)(nil)
+)
+
 // newStream initiates a Stream struct
 func newStream(id uint32, frameSize int, sess *Session) *Stream {
 	s := new(Stream)
@@ -100,30 +104,11 @@ func (s *Stream) Write(b []byte) (n int, err error) {
 
 	frames := s.split(b, cmdPSH, s.id)
 	sent := 0
-	for k := range frames {
-		req := writeRequest{
-			frame:  frames[k],
-			result: make(chan writeResult, 1),
-		}
-
-		select {
-		case s.sess.writes <- req:
-		case <-s.die:
-			return sent, errors.New(errBrokenPipe)
-		case <-deadline:
-			return sent, errTimeout
-		}
-
-		select {
-		case result := <-req.result:
-			sent += result.n
-			if result.err != nil {
-				return sent, result.err
-			}
-		case <-s.die:
-			return sent, errors.New(errBrokenPipe)
-		case <-deadline:
-			return sent, errTimeout
+	for _, f := range frames {
+		n, err := writeFrame(f, s.sess.writes, deadline, s.die)
+		sent += n
+		if err != nil {
+			return sent, err
 		}
 	}
 	return sent, nil

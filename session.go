@@ -335,16 +335,29 @@ func (s *Session) sendLoop() {
 // writeFrame writes the frame to the underlying connection
 // and returns the number of bytes written if successful
 func (s *Session) writeFrame(f Frame) (n int, err error) {
+	return writeFrame(f, s.writes, nil, s.die)
+}
+
+func writeFrame(f Frame, writes chan<- writeRequest, deadline <-chan time.Time, die <-chan struct{}) (n int, err error) {
 	req := writeRequest{
 		frame:  f,
 		result: make(chan writeResult, 1),
 	}
+
 	select {
-	case <-s.die:
+	case <-die:
 		return 0, errors.New(errBrokenPipe)
-	case s.writes <- req:
+	case <-deadline:
+		return 0, errTimeout
+	case writes <- req:
 	}
 
-	result := <-req.result
-	return result.n, result.err
+	select {
+	case <-die:
+		return 0, errTimeout
+	case <-deadline:
+		return 0, errTimeout
+	case result := <-req.result:
+		return result.n, result.err
+	}
 }
