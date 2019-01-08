@@ -20,6 +20,10 @@ const (
 	errGoAway          = "stream id overflows, should start a new connection"
 )
 
+var (
+	timerPool = NewTimerPool()
+)
+
 type writeRequest struct {
 	frame  Frame
 	result chan writeResult
@@ -115,11 +119,15 @@ func (s *Session) OpenStream() (*Stream, error) {
 
 // AcceptStream is used to block until the next available stream
 // is ready to be accepted.
-func (s *Session) AcceptStream() (*Stream, error) {
+func (s *Session) AcceptStream() (stream *Stream, err error) {
 	var deadline <-chan time.Time
 	if d, ok := s.deadline.Load().(time.Time); ok && !d.IsZero() {
-		timer := time.NewTimer(time.Until(d))
-		defer timer.Stop()
+		timer := timerPool.Get()
+		timer.Reset(time.Until(d))
+		// TODO: optimize defer
+		defer func() {
+			timerPool.Put(timer, err == errTimeout)
+		}()
 		deadline = timer.C
 	}
 	select {

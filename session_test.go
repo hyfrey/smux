@@ -617,6 +617,18 @@ func BenchmarkConnSmux(b *testing.B) {
 	bench(b, cs, ss)
 }
 
+func BenchmarkConnSmuxDeadline(b *testing.B) {
+	cs, ss, err := getSmuxStreamPair()
+	if err != nil {
+		b.Fatal(err)
+	}
+	cs.SetDeadline(time.Now().Add(5 * time.Second))
+	ss.SetDeadline(time.Now().Add(5 * time.Second))
+	defer cs.Close()
+	defer ss.Close()
+	bench(b, cs, ss)
+}
+
 func BenchmarkConnTCP(b *testing.B) {
 	cs, ss, err := getTCPConnectionPair()
 	if err != nil {
